@@ -44,6 +44,18 @@ python transcribe_chats.py Videos --accurate              # slower, best quality
 | `--accurate` | off | Beam search decoding: slower, slightly more accurate |
 | `--batch-size` | `8` | Audio chunks processed at once (`1` turns batching off) |
 | `--force` | off | Redo recordings that already have a transcript |
+| `--watch` | off | Keep running and transcribe each new recording once it's done saving |
+| `--log` | none | Write output to a file (for running in the background with `pythonw`) |
+
+## Run it automatically (Windows)
+
+I keep the script in `Videos\chat-transcriber\` and run `setup_autostart.cmd` once. It registers a Task Scheduler task that starts the transcriber in watch mode every time I log in, so every recording OBS saves gets a transcript a couple of minutes after the call ends, with nothing to run by hand.
+
+```
+python transcribe_chats.py "C:\Users\me\Videos" --watch --log transcriber.log
+```
+
+Watch mode waits until a file hasn't changed for 2 minutes before touching it, so it never grabs a recording OBS is still writing.
 
 ## Output
 

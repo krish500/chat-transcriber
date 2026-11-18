@@ -130,28 +130,66 @@ def main():
     ap.add_argument("--accurate", action="store_true", help="beam search: slower, slightly more accurate")
     ap.add_argument("--batch-size", type=int, default=8, help="chunks processed at once (1 = no batching)")
     ap.add_argument("--force", action="store_true", help="redo files that already have a transcript")
+    ap.add_argument("--watch", action="store_true",
+                    help="keep running and transcribe new recordings as soon as OBS finishes them")
+    ap.add_argument("--log", help="write output to this file (needed with pythonw, which has no console)")
     args = ap.parse_args()
 
-    todo = []
-    for f in find_recordings(args.paths):
-        out = f.with_suffix(".transcript.md")
-        if out.exists() and not args.force:
-            print(f"Skip (already done): {f.name}")
-        else:
-            todo.append((f, out))
-    if not todo:
-        print("Nothing to transcribe.")
-        return
+    if args.log:
+        # pythonw has no console, so print() would go nowhere without this
+        log = open(args.log, "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
 
     # hide the huggingface symlink warning spam on windows
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     warnings.filterwarnings("ignore", category=UserWarning)
-    print(f"Loading model {args.model} ...")
-    model, where = load_model(args.model, args.device)
-    print(f"  Running on {where}")
+
+    if args.watch:
+        watch(args)
+    else:
+        run_once(args, find_todo(args), model=None)
+
+
+def find_todo(args, settled_only=False):
+    todo = []
+    for f in find_recordings(args.paths):
+        out = f.with_suffix(".transcript.md")
+        if out.exists() and not args.force:
+            continue
+        # in watch mode skip anything OBS might still be writing (touched in the last 2 min)
+        if settled_only and time.time() - f.stat().st_mtime < 120:
+            continue
+        todo.append((f, out))
+    return todo
+
+
+def watch(args):
+    print(f"[{dt.datetime.now():%Y-%m-%d %H:%M}] watching {', '.join(args.paths)}")
+    model = None
+    failed = set()
+    while True:
+        todo = [t for t in find_todo(args, settled_only=True) if t[0] not in failed]
+        if todo:
+            try:
+                model = run_once(args, todo, model)
+            except Exception as e:
+                # don't die on one bad file, just skip it until next restart
+                print(f"  failed: {e}")
+                failed.update(f for f, _ in todo)
+        time.sleep(60)
+
+
+def run_once(args, todo, model):
+    if not todo:
+        print("Nothing to transcribe.")
+        return model
+    if model is None:
+        print(f"Loading model {args.model} ...")
+        model, where = load_model(args.model, args.device)
+        print(f"  Running on {where}")
 
     for f, out in todo:
-        print(f"Transcribing {f.name}")
+        print(f"[{dt.datetime.now():%Y-%m-%d %H:%M}] Transcribing {f.name}")
         t0 = time.time()
         lines, duration = transcribe(model, f, args.language, args.accurate, args.batch_size)
         # file modified time is close enough to when the call happened
@@ -169,6 +207,7 @@ def main():
         out.write_text("\n".join(header) + "\n\n".join(lines) + "\n", encoding="utf-8")
         took = time.time() - t0
         print(f"  Saved {out.name} ({took:.0f}s, {duration / max(took, 1):.1f}x realtime)")
+    return model
 
 
 if __name__ == "__main__":
