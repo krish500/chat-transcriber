@@ -1,0 +1,13 @@
+# Recordings and transcripts stay local
+*.mkv
+*.mp4
+*.mov
+*.webm
+*.m4a
+*.mp3
+*.wav
+*.transcript.md
+
+__pycache__/
+*.pyc
+.venv/
